@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>在庫最適化モック｜消費者 & 店舗</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --ok: #16a34a;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --chip: #eef2ff;
+      --border: #e5e7eb;
+      --shadow: 0 8px 24px rgba(30,41,59,.08);
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP", Ubuntu, "Yu Gothic UI", "Meiryo", sans-serif;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    }
+    header {
+      position: sticky; top: 0; z-index: 10;
+      background: var(--card); box-shadow: var(--shadow);
+      padding: 10px 14px; display: flex; align-items: center; gap: 10px;
+    }
+    .logo { font-weight: 800; letter-spacing: .3px; }
+    .logo small { color: var(--muted); font-weight: 600; }
+    .tabs { margin-left: auto; display: flex; gap: 6px; }
+    .tab {
+      border: 1px solid var(--border); background: #fff; color: var(--ink);
+      padding: 8px 12px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 14px;
+    }
+    .tab.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+    main { max-width: 420px; margin: 18px auto 80px; padding: 0 14px; }
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; }
+    .stack { display: grid; gap: 12px; }
+
+    .row { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+    .muted { color: var(--muted); }
+    .badge { font-size: 12px; padding: 4px 8px; border-radius: 999px; font-weight: 700; }
+    .open { background: #ecfdf5; color: var(--ok); }
+    .closed { background: #fee2e2; color: var(--err); }
+    .soon { background: #fffbeb; color: var(--warn); }
+    .chip { background: var(--chip); color: var(--accent); font-weight: 700; }
+
+    .search { display: flex; gap: 8px; }
+    input[type="search"]{
+      width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: #fff; font-size: 14px;
+    }
+
+    .store-card { display: grid; gap: 8px; }
+    .store-name { font-weight: 800; font-size: 16px; }
+
+    .menu-item { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px dashed var(--border); }
+    .menu-item:last-child { border-bottom: none; }
+
+    .pill { font-size: 12px; padding: 4px 8px; border-radius: 999px; font-weight: 800; }
+    .stock { background: #ecfeff; color: #0891b2; }
+    .oos { background: #fee2e2; color: #b91c1c; }
+
+    .btn { border: 1px solid var(--border); background: #fff; padding: 8px 12px; border-radius: 10px; cursor: pointer; font-weight: 700; }
+    .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn.ghost { background: transparent; }
+
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .qty {
+      display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px;
+      border: 1px solid var(--border); border-radius: 10px; font-weight: 700;
+    }
+    .qty button { border: none; background: #f1f5f9; width: 28px; height: 28px; border-radius: 8px; font-weight: 900; cursor: pointer; }
+
+    footer { position: fixed; bottom: 10px; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none; }
+    .toast { pointer-events: auto; background: #111827; color: #fff; padding: 10px 14px; border-radius: 999px; box-shadow: var(--shadow); display: none; }
+    .toast.show { display: inline-block; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">SoldOut? <small>リアルタイム在庫</small></div>
+    <div class="tabs">
+      <button class="tab active" data-target="#screen-list">消費者: 店舗一覧</button>
+      <button class="tab" data-target="#screen-detail">消費者: 店舗詳細</button>
+      <button class="tab" data-target="#screen-merchant">店舗: 在庫管理</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- 消費者画面 1: 店舗一覧 -->
+    <section id="screen-list" class="screen active">
+      <div class="stack">
+        <div class="card search">
+          <input type="search" id="q" placeholder="エリア・店名・メニューで検索" />
+          <button class="btn" id="btnSearch">検索</button>
+        </div>
+
+        <div id="storeList" class="stack"></div>
+      </div>
+    </section>
+
+    <!-- 消費者画面 2: 店舗詳細 -->
+    <section id="screen-detail" class="screen">
+      <div class="stack">
+        <div class="card store-card">
+          <div class="row">
+            <div>
+              <div class="store-name" id="d-name">徳島ラーメン まるごと屋</div>
+              <div class="muted" id="d-hours">本日 11:00 - 15:00 / 17:30 - 21:00</div>
+            </div>
+            <span class="badge open" id="d-open">営業中</span>
+          </div>
+          <div class="row">
+            <span class="chip" id="d-predict">売り切れ予測: 特製ラーメン 13:45</span>
+            <button class="btn ghost" onclick="goTo('#screen-list')">一覧へ</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="menu-item">
+            <div>
+              <div><strong>特製ラーメン</strong> <span class="muted">(残り <span id="m1-left">12</span>)</span></div>
+              <div class="muted">人気・売り切れ予測 13:45</div>
+            </div>
+            <span class="pill stock" id="m1-pill">残あり</span>
+          </div>
+          <div class="menu-item">
+            <div>
+              <div><strong>チャーシュー麺</strong> <span class="muted">(残り <span id="m2-left">0</span>)</span></div>
+              <div class="muted">本日完売</div>
+            </div>
+            <span class="pill oos" id="m2-pill">売り切れ</span>
+          </div>
+          <div class="menu-item">
+            <div>
+              <div><strong>餃子</strong> <span class="muted">(残り <span id="m3-left">20</span>)</span></div>
+              <div class="muted">売り切れ予測 20:00</div>
+            </div>
+            <span class="pill stock" id="m3-pill">残あり</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <button class="btn">この店をフォロー</button>
+          <button class="btn primary">売り切れ前に通知</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 店舗画面: 在庫管理（SaaS） -->
+    <section id="screen-merchant" class="screen">
+      <div class="stack">
+        <div class="card">
+          <div class="row">
+            <div>
+              <div class="store-name">徳島ラーメン まるごと屋（管理画面）</div>
+              <div class="muted">きょうの目標売上: 120食 / おすすめ仕込み: 110食</div>
+            </div>
+            <div>
+              <button class="btn" id="toggleOpen">営業中</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card stack" id="merchantItems">
+          <!-- JSで項目を入れる -->
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <div class="muted">AI提案（PoC）</div>
+            <button class="btn" id="btnSuggest">仕込み数を提案</button>
+          </div>
+          <div id="suggestText" class="muted" style="margin-top:8px;">天気(曇)・祝日前夜・近隣イベントあり → 特製ラーメン +10、餃子 +5 を推奨。</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="toast" id="toast">保存しました</div>
+  </footer>
+
+  <script>
+    // --- Simple state ---
+    const state = {
+      open: true,
+      items: [
+        { id: 'm1', name: '特製ラーメン', left: 12 },
+        { id: 'm2', name: 'チャーシュー麺', left: 0 },
+        { id: 'm3', name: '餃子', left: 20 }
+      ]
+    };
+
+    // --- Tab switching ---
+    const tabs = document.querySelectorAll('.tab');
+    tabs.forEach(t => t.addEventListener('click', () => {
+      tabs.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      goTo(t.dataset.target);
+    }));
+
+    function goTo(sel){
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.querySelector(sel).classList.add('active');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // --- Sample stores with hours ---
+    const sampleStores = [
+      { name: '徳島ラーメン まるごと屋', open: true, predict: '特製ラーメン 13:45', status: '営業中', hours: '本日 11:00 - 15:00 / 17:30 - 21:00' },
+      { name: 'パン工房 かみやま', open: true, predict: 'クリームパン 14:30', status: '営業中', hours: '本日 8:00 - 16:00' },
+      { name: 'スイーツ工房 Sakura', open: false, predict: null, status: '本日終了', hours: '本日 12:00 - 18:00' },
+    ];
+
+    function viewDetail(index){
+      const s = sampleStores[index];
+      document.getElementById('d-name').textContent = s.name;
+      document.getElementById('d-hours').textContent = s.hours || '本日 11:00 - 15:00 / 17:30 - 21:00';
+      const dOpen = document.getElementById('d-open');
+      dOpen.textContent = s.open ? '営業中' : '閉店';
+      dOpen.className = 'badge ' + (s.open ? 'open' : 'closed');
+      document.getElementById('d-predict').textContent = s.predict ? '売り切れ予測: ' + s.predict : '売り切れ予測なし';
+      goTo('#screen-detail');
+    }
+
+    // --- Render store list (consumer) ---
+    function renderStoreList(){
+      const list = document.getElementById('storeList');
+      list.innerHTML = '';
+      sampleStores.forEach((s, i) => {
+        const card = document.createElement('div');
+        card.className = 'card store-card';
+        card.innerHTML = `
+          <div class="row">
+            <div>
+              <div class="store-name">${s.name}</div>
+              <div class="muted">${s.open ? '本日営業中' : '本日休業/終了'}</div>
+            </div>
+            <span class="badge ${s.open ? 'open' : 'closed'}">${s.status}</span>
+          </div>
+          <div class="row">
+            <span class="chip">${s.predict ? '売り切れ予測: ' + s.predict : '売り切れ予測なし'}</span>
+            <button class="btn" onclick="viewDetail(${i})">詳細</button>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+    }
+
+    // --- Render merchant items ---
+    function renderMerchant(){
+      const wrap = document.getElementById('merchantItems');
+      wrap.innerHTML = '';
+      state.items.forEach(it => {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div>
+            <strong>${it.name}</strong>
+            <div class="muted">残り <span data-left="${it.id}">${it.left}</span></div>
+          </div>
+          <div class="grid2">
+            <div class="qty">
+              <button onclick="inc('${it.id}',-1)">-</button>
+              <span id="${it.id}-qty">${it.left}</span>
+              <button onclick="inc('${it.id}',1)">+</button>
+            </div>
+            <button class="btn" onclick="toggleOOS('${it.id}')">${it.left===0?'在庫復活':'売り切れ'}</button>
+          </div>
+        `;
+        wrap.appendChild(row);
+      });
+      // Reflect open state
+      document.getElementById('toggleOpen').textContent = state.open ? '営業中' : '準備中';
+      document.getElementById('d-open').textContent = state.open ? '営業中' : '閉店';
+      document.getElementById('d-open').className = 'badge ' + (state.open? 'open':'closed');
+    }
+
+    function inc(id, delta){
+      const it = state.items.find(x=>x.id===id);
+      it.left = Math.max(0, it.left + delta);
+      document.getElementById(`${id}-qty`).textContent = it.left;
+      document.querySelector(`[data-left="${id}"]`).textContent = it.left;
+      // reflect on consumer detail
+      const leftSpan = document.getElementById(`${id}-left`);
+      if(leftSpan){ leftSpan.textContent = it.left; }
+      reflectPills();
+      toast('保存しました');
+      renderMerchant();
+    }
+
+    function toggleOOS(id){
+      const it = state.items.find(x=>x.id===id);
+      it.left = it.left===0 ? 10 : 0; // simple toggle
+      inc(id, 0);
+    }
+
+    function reflectPills(){
+      state.items.forEach(it => {
+        const pill = document.getElementById(`${it.id}-pill`);
+        const left = document.getElementById(`${it.id}-left`);
+        if(pill){
+          if(it.left>0){ pill.className='pill stock'; pill.textContent='残あり'; }
+          else { pill.className='pill oos'; pill.textContent='売り切れ'; }
+        }
+        if(left){ left.textContent = it.left; }
+      });
+    }
+
+    document.getElementById('toggleOpen').addEventListener('click', ()=>{
+      state.open = !state.open; renderMerchant(); toast('営業ステータスを更新');
+    });
+
+    document.getElementById('btnSuggest').addEventListener('click', ()=>{
+      document.getElementById('suggestText').textContent = '明日の予測: 来店120±10 → 特製ラーメン 60, チャーシュー麺 30, 餃子 80 を推奨（天候: 曇/最高30℃, 近隣イベントあり）';
+      toast('AI提案を更新しました');
+    });
+
+    document.getElementById('btnSearch').addEventListener('click', ()=>{
+      toast('検索（ダミー）');
+    });
+
+    function toast(msg){
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.classList.add('show');
+      setTimeout(()=>t.classList.remove('show'), 1600);
+    }
+
+    // initialize
+    renderStoreList();
+    renderMerchant();
+    reflectPills();
+  </script>
+</body>
+</html>
